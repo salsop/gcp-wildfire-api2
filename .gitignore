@@ -1,0 +1,8 @@
+# IDE files
+.idea
+
+# Terraform files
+.terraform*
+*.tfstate*
+terraform.tfvars
+
