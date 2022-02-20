@@ -24,6 +24,9 @@ import (
 	secretmanagerpb "google.golang.org/genproto/googleapis/cloud/secretmanager/v1"
 )
 
+var WildfireAPIKey string
+var err error
+
 // PubSubMessage is the payload of a Pub/Sub event.
 // See the documentation for more details:
 // https://cloud.google.com/pubsub/docs/reference/rest/v1/PubsubMessage
@@ -85,12 +88,13 @@ type wildfireUpload struct {
 
 // Gets a secret from the Google Secrets Manager and returns it as a string
 //   name format projects/project-id/secrets/secret-name/versions/latest
-func getSecretValue(name string) string {
+func getSecretValue(name string) (string,error){
 	// Create the client.
 	ctx := context.Background()
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
-		log.Fatalln("failed to create secret manager client", err)
+		log.Printf("failed to create secret manager client - %v \n", err)
+		return "",err
 	}
 	defer client.Close()
 
@@ -102,28 +106,25 @@ func getSecretValue(name string) string {
 	// Call the API.
 	result, err := client.AccessSecretVersion(ctx, req)
 	if err != nil {
-		log.Fatalln("failed to access secret version", name, err)
+		log.Printf("failed to access secret version - %v - %v \n", name, err)
+		return "",err
 	}
 
-	return string(result.Payload.Data)
+	return string(result.Payload.Data), nil
 }
 
 // Check MD5 Hash in Wildfire Database
 //   Returns error and verdict result
 func checkWildfireVerdictByMD5(md5Hash string) string {
-	// get GCP project value from environmental variables
-	projectId := os.Getenv("GCP_PROJECT")
-
 	// get wildfire api portal and key from GCP secrets manager
-	wildfire_api_portal := os.Getenv("WILDFIRE_API_PORTAL")
-	wildfire_api_key := getSecretValue("projects/" + projectId + "/secrets/wildfire_api_key/versions/latest")
+	wildfireAPIPortal := os.Getenv("WILDFIRE_API_PORTAL")
 
 	// make api call to wildfire to get verdict
 	data := url.Values{}
-	data.Set("apikey", wildfire_api_key)
+	data.Set("apikey", WildfireAPIKey)
 	data.Set("hash", md5Hash)
 
-	fullURL := "https://" + wildfire_api_portal + "/publicapi/get/verdict"
+	fullURL := "https://" + wildfireAPIPortal + "/publicapi/get/verdict"
 
 	resp, err := http.PostForm(fullURL, data)
 	if err != nil {
@@ -185,14 +186,10 @@ func decodeGCSMD5Value(str string) string {
 
 // upload file contents to wildfire for analysis
 func uploadFileToWildfire(filename, contents string) error {
-	// get GCP project value from environmental variables
-	projectId := os.Getenv("GCP_PROJECT")
-
 	// get wildfire api portal and key from GCP secrets manager
-	wildfire_api_portal := os.Getenv("WILDFIRE_API_PORTAL")
-	wildfire_api_key := getSecretValue("projects/" + projectId + "/secrets/wildfire_api_key/versions/latest")
+	wildfireAPIPortal := os.Getenv("WILDFIRE_API_PORTAL")
 
-	url := "https://" + wildfire_api_portal + "/publicapi/submit/file"
+	url := "https://" + wildfireAPIPortal + "/publicapi/submit/file"
 
 	body := &bytes.Buffer{}
 
@@ -205,7 +202,7 @@ func uploadFileToWildfire(filename, contents string) error {
 		log.Print(err)
 	}
 
-	err = writer.WriteField("apikey", wildfire_api_key)
+	err = writer.WriteField("apikey", WildfireAPIKey)
 	if err != nil {
 		log.Print(err)
 	}
@@ -389,6 +386,16 @@ func PubSubProcessor(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// get wildfire api key from secret manager
+	projectId := os.Getenv("GCP_PROJECT")
+	WildfireAPIKey, err = getSecretValue("projects/" + projectId + "/secrets/wildfire_api_key/versions/latest")
+	if err != nil {
+		log.Printf("cannot read secret value - %v \n", err)
+	} else
+	{
+	    log.Printf("loaded wildfire_api_key secret")
+	}
+
 	http.HandleFunc("/", PubSubProcessor)
 	// Determine port for HTTP service.
 	port := os.Getenv("PORT")
