@@ -41,6 +41,8 @@ resource "google_cloud_run_service" "upload_processor" {
 
   depends_on = [
     null_resource.upload_processor,
+    google_secret_manager_secret.wildfire_api_key,
+    google_secret_manager_secret_version.wildfire_api_key,
   ]
 }
 
