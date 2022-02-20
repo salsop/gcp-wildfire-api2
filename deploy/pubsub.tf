@@ -40,15 +40,15 @@ resource "google_pubsub_subscription" "upload" {
   }
 }
 
-# get the storage account service account
-data "google_storage_project_service_account" "gcs_account" {
+# get project information
+data "google_project" "this" {
 }
 
 # give the storage account the role to allow it to publish to the pubsub topic
 resource "google_pubsub_topic_iam_binding" "upload" {
   topic   = google_pubsub_topic.upload.id
   role    = "roles/pubsub.publisher"
-  members = ["serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"]
+  members = ["serviceAccount:service-${data.google_project.this.number}@gs-project-accounts.iam.gserviceaccount.com"]
 }
 
 # google pubsub to cloud run push notification
